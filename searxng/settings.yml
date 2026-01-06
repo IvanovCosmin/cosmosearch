@@ -1,0 +1,63 @@
+# SearXNG settings
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "SearXNG"
+  privacypolicy_url: false
+  donation_url: false
+  contact_url: false
+  enable_metrics: true
+
+search:
+  safe_search: 0
+  autocomplete: "google"
+  default_lang: "auto"
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "ultrasecretkey123456789"
+  limiter: false
+  image_proxy: true
+  base_url: false
+
+ui:
+  static_use_hash: true
+  default_theme: simple
+  center_alignment: true
+  infinite_scroll: true
+  query_in_title: true
+
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+  - name: wikipedia (ro)
+    engine: wikipedia
+    shortcut: wpro
+    language: ro
+    disabled: false
+    
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+
+  - name: stackoverflow
+    engine: stackoverflow
+    shortcut: st
+    disabled: false
