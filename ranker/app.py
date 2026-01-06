@@ -880,6 +880,59 @@ HTML_TEMPLATE = '''
         @keyframes blink {
             50% { opacity: 0; }
         }
+        
+        /* Autocomplete */
+        .search-wrapper {
+            position: relative;
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .autocomplete-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--bg-alt);
+            border: 1px solid var(--green);
+            border-top: none;
+            z-index: 1000;
+            max-height: 300px;
+            overflow-y: auto;
+            display: none;
+        }
+        
+        .autocomplete-dropdown.active {
+            display: block;
+        }
+        
+        .autocomplete-item {
+            padding: 10px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            color: var(--white);
+            transition: all 0.1s;
+        }
+        
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+        
+        .autocomplete-item:hover,
+        .autocomplete-item.selected {
+            background: rgba(0, 255, 65, 0.1);
+            color: var(--green);
+        }
+        
+        .autocomplete-item::before {
+            content: "› ";
+            color: var(--cyan);
+        }
+        
+        .autocomplete-item.selected::before {
+            content: "» ";
+            color: var(--green);
+        }
     </style>
 </head>
 <body>
@@ -896,10 +949,13 @@ HTML_TEMPLATE = '''
         </pre>
         
         <form action="/search" method="GET" class="home-search">
-            <div class="search-box">
-                <span class="search-prompt">search@cosmo:~$</span>
-                <input type="text" name="q" class="search-input" placeholder="enter query..." autofocus>
-                <button type="submit" class="search-btn">EXEC</button>
+            <div class="search-wrapper">
+                <div class="search-box">
+                    <span class="search-prompt">search@cosmo:~$</span>
+                    <input type="text" name="q" class="search-input" id="search-home" placeholder="enter query..." autofocus autocomplete="off">
+                    <button type="submit" class="search-btn">EXEC</button>
+                </div>
+                <div class="autocomplete-dropdown" id="autocomplete-home"></div>
             </div>
         </form>
         
@@ -942,11 +998,14 @@ HTML_TEMPLATE = '''
                 <a href="/" class="logo-small">CosmoSearch</a>
                 
                 <form action="/search" method="GET" class="search-form">
-                    <div class="search-box">
-                        <span class="search-prompt">~$</span>
-                        <input type="text" name="q" class="search-input" value="{{ query }}">
-                        <input type="hidden" name="tab" value="{{ current_tab }}">
-                        <button type="submit" class="search-btn">EXEC</button>
+                    <div class="search-wrapper">
+                        <div class="search-box">
+                            <span class="search-prompt">~$</span>
+                            <input type="text" name="q" class="search-input" id="search-results" value="{{ query }}" autocomplete="off">
+                            <input type="hidden" name="tab" value="{{ current_tab }}">
+                            <button type="submit" class="search-btn">EXEC</button>
+                        </div>
+                        <div class="autocomplete-dropdown" id="autocomplete-results"></div>
                     </div>
                 </form>
             </div>
@@ -1071,6 +1130,104 @@ HTML_TEMPLATE = '''
         {% endif %}
     </div>
     {% endif %}
+    
+    <script>
+    (function() {
+        let debounceTimer;
+        let selectedIndex = -1;
+        let suggestions = [];
+        
+        function setupAutocomplete(inputId, dropdownId) {
+            const input = document.getElementById(inputId);
+            const dropdown = document.getElementById(dropdownId);
+            if (!input || !dropdown) return;
+            
+            input.addEventListener('input', function() {
+                clearTimeout(debounceTimer);
+                const query = this.value.trim();
+                
+                if (query.length < 2) {
+                    dropdown.classList.remove('active');
+                    suggestions = [];
+                    selectedIndex = -1;
+                    return;
+                }
+                
+                debounceTimer = setTimeout(() => {
+                    fetch('/autocomplete?q=' + encodeURIComponent(query))
+                        .then(r => r.json())
+                        .then(data => {
+                            suggestions = data.slice(0, 8);
+                            selectedIndex = -1;
+                            
+                            if (suggestions.length === 0) {
+                                dropdown.classList.remove('active');
+                                return;
+                            }
+                            
+                            dropdown.innerHTML = suggestions.map((s, i) => 
+                                `<div class="autocomplete-item" data-index="${i}">${escapeHtml(s)}</div>`
+                            ).join('');
+                            dropdown.classList.add('active');
+                            
+                            dropdown.querySelectorAll('.autocomplete-item').forEach(item => {
+                                item.addEventListener('click', function() {
+                                    input.value = suggestions[this.dataset.index];
+                                    dropdown.classList.remove('active');
+                                    input.form.submit();
+                                });
+                            });
+                        })
+                        .catch(() => dropdown.classList.remove('active'));
+                }, 150);
+            });
+            
+            input.addEventListener('keydown', function(e) {
+                if (!dropdown.classList.contains('active')) return;
+                
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    selectedIndex = Math.min(selectedIndex + 1, suggestions.length - 1);
+                    updateSelection(dropdown);
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    selectedIndex = Math.max(selectedIndex - 1, -1);
+                    updateSelection(dropdown);
+                } else if (e.key === 'Enter' && selectedIndex >= 0) {
+                    e.preventDefault();
+                    input.value = suggestions[selectedIndex];
+                    dropdown.classList.remove('active');
+                    input.form.submit();
+                } else if (e.key === 'Escape') {
+                    dropdown.classList.remove('active');
+                    selectedIndex = -1;
+                }
+            });
+            
+            document.addEventListener('click', function(e) {
+                if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                    dropdown.classList.remove('active');
+                }
+            });
+        }
+        
+        function updateSelection(dropdown) {
+            dropdown.querySelectorAll('.autocomplete-item').forEach((item, i) => {
+                item.classList.toggle('selected', i === selectedIndex);
+            });
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Initialize autocomplete for both search boxes
+        setupAutocomplete('search-home', 'autocomplete-home');
+        setupAutocomplete('search-results', 'autocomplete-results');
+    })();
+    </script>
 </body>
 </html>
 '''
@@ -1193,6 +1350,30 @@ def api_config():
         'preferred_languages': PREFERRED_LANGUAGES,
         'non_preferred_language_penalty': NON_PREFERRED_LANGUAGE_PENALTY,
     })
+
+
+@app.route('/autocomplete')
+def autocomplete():
+    """Proxy autocomplete requests to SearXNG."""
+    query = request.args.get('q', '')
+    
+    if not query or len(query) < 2:
+        return jsonify([])
+    
+    try:
+        response = requests.get(
+            f"{SEARXNG_URL}/autocompleter",
+            params={'q': query},
+            timeout=3
+        )
+        response.raise_for_status()
+        data = response.json()
+        # OpenSearch format: ["query", ["suggestion1", "suggestion2", ...]]
+        if isinstance(data, list) and len(data) >= 2:
+            return jsonify(data[1])
+        return jsonify([])
+    except requests.RequestException:
+        return jsonify([])
 
 
 if __name__ == '__main__':
