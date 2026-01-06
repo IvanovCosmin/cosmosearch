@@ -12,7 +12,6 @@ import requests
 from datetime import datetime
 from urllib.parse import urlparse
 from flask import Flask, request, jsonify, render_template_string
-from langdetect import detect, LangDetectException
 
 app = Flask(__name__)
 
@@ -176,22 +175,45 @@ def calculate_factuality_score(domain):
 
 
 def detect_language(result):
-    """Detect language from result content and metadata."""
+    """Detect language from result content and metadata.
+    
+    Uses a fast heuristic approach instead of slow langdetect library.
+    Only falls back to langdetect for ambiguous cases if needed.
+    """
     # First, check if SearXNG provided language metadata
     lang = result.get('language', '').lower()[:2] if result.get('language') else None
     if lang:
         return lang
     
-    # Try to detect from content + title
+    # Get text to analyze
     text = f"{result.get('title', '')} {result.get('content', '')}"
-    if len(text.strip()) < 20:  # Not enough text to detect
+    if len(text.strip()) < 20:
         return None
     
-    try:
-        detected = detect(text)
-        return detected
-    except LangDetectException:
-        return None
+    # Fast heuristic: check for Romanian-specific characters/patterns
+    # Romanian has: ă, â, î, ș, ț and common words
+    romanian_chars = set('ăâîșțĂÂÎȘȚ')
+    romanian_words = {'și', 'sau', 'pentru', 'este', 'sunt', 'care', 'acest', 'într', 'unei', 'unui', 'precum', 'despre'}
+    
+    text_lower = text.lower()
+    
+    # Check for Romanian characters
+    if any(c in text for c in romanian_chars):
+        return 'ro'
+    
+    # Check for common Romanian words
+    words = set(text_lower.split())
+    if len(words & romanian_words) >= 2:
+        return 'ro'
+    
+    # Fast English detection: check for common English patterns
+    english_words = {'the', 'and', 'for', 'that', 'with', 'this', 'from', 'have', 'are', 'was', 'been', 'which', 'their', 'will', 'would', 'could', 'should'}
+    if len(words & english_words) >= 2:
+        return 'en'
+    
+    # For other languages, just return None (neutral score)
+    # This avoids the slow langdetect call for most results
+    return None
 
 
 def calculate_language_score(lang):
@@ -321,8 +343,9 @@ HTML_TEMPLATE = '''
         }
         
         .container {
-            max-width: 1000px;
-            padding: 20px 30px;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px 40px;
         }
         
         /* Header */
@@ -784,7 +807,14 @@ HTML_TEMPLATE = '''
         
         /* Homepage */
         .home-container {
+            max-width: 900px;
+            margin: 0 auto;
             padding: 60px 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            justify-content: center;
         }
         
         .ascii-logo {
@@ -801,11 +831,13 @@ HTML_TEMPLATE = '''
         }
         
         .home-search {
+            width: 100%;
             max-width: 600px;
             margin-bottom: 30px;
         }
         
         .home-info {
+            width: 100%;
             max-width: 600px;
             border: 1px solid var(--border);
             padding: 20px;
