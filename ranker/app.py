@@ -9,7 +9,7 @@ A proxy service that sits in front of SearXNG and re-ranks results based on:
 import re
 import requests
 from datetime import datetime
-from urllib.parse import urlparse, urlencode
+from urllib.parse import urlparse
 from flask import Flask, request, jsonify, render_template_string
 from langdetect import detect, LangDetectException
 
@@ -250,6 +250,16 @@ def rank_results(results):
     return scored_results
 
 
+# Available search engines/categories
+SEARCH_TABS = [
+    {'id': 'general', 'name': '[all]', 'engines': '', 'categories': 'general'},
+    {'id': 'images', 'name': '[img]', 'engines': 'google images,bing images,duckduckgo images', 'categories': 'images'},
+    {'id': 'videos', 'name': '[vid]', 'engines': '', 'categories': 'videos'},
+    {'id': 'news', 'name': '[news]', 'engines': '', 'categories': 'news'},
+    {'id': 'science', 'name': '[sci]', 'engines': '', 'categories': 'science'},
+    {'id': 'files', 'name': '[files]', 'engines': '', 'categories': 'files'},
+]
+
 # HTML template for the search interface
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -257,268 +267,660 @@ HTML_TEMPLATE = '''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SearXNG with Smart Ranking</title>
+    <title>{% if query %}{{ query }} - {% endif %}CosmoSearch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg: #0a0a0a;
+            --bg-alt: #0d1117;
+            --bg-card: #111318;
+            --green: #00ff41;
+            --green-dim: #00cc33;
+            --cyan: #00d4ff;
+            --magenta: #ff00ff;
+            --yellow: #ffff00;
+            --red: #ff3333;
+            --orange: #ff9500;
+            --white: #c9d1d9;
+            --gray: #6e7681;
+            --border: #30363d;
+        }
+        
         * { box-sizing: border-box; margin: 0; padding: 0; }
         
         body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            background: var(--bg);
             min-height: 100vh;
-            color: #e8e8e8;
+            color: var(--white);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        /* Scanline effect */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            z-index: 1000;
         }
         
         .container {
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 20px;
+            max-width: 1000px;
+            padding: 20px 30px;
         }
         
-        header {
-            text-align: center;
-            padding: 40px 0 30px;
+        /* Header */
+        .header {
+            border-bottom: 1px solid var(--border);
+            padding: 15px 0;
+            margin-bottom: 20px;
         }
         
-        h1 {
-            font-size: 2.5em;
-            background: linear-gradient(90deg, #00d9ff, #00ff88);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 10px;
+        .header-row {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
         }
         
-        .subtitle {
-            color: #888;
-            font-size: 0.95em;
+        /* ASCII Logo */
+        .logo {
+            text-decoration: none;
+            white-space: pre;
+            font-size: 10px;
+            line-height: 1.2;
+            color: var(--green);
+            text-shadow: 0 0 10px var(--green);
+        }
+        
+        .logo-small {
+            color: var(--cyan);
+            text-decoration: none;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 0 0 8px var(--cyan);
+        }
+        
+        .logo-small::before {
+            content: "$ ";
+            color: var(--green);
+        }
+        
+        /* Search box */
+        .search-form {
+            flex: 1;
+            min-width: 300px;
         }
         
         .search-box {
             display: flex;
-            gap: 10px;
-            margin: 30px 0;
+            align-items: center;
+            background: var(--bg-alt);
+            border: 1px solid var(--border);
+            padding: 0;
         }
         
-        input[type="text"] {
+        .search-prompt {
+            color: var(--green);
+            padding: 10px 0 10px 12px;
+            user-select: none;
+        }
+        
+        .search-input {
             flex: 1;
-            padding: 15px 20px;
-            border: 2px solid #333;
-            border-radius: 12px;
-            background: rgba(255,255,255,0.05);
-            color: #fff;
-            font-size: 1.1em;
-            transition: all 0.3s;
-        }
-        
-        input[type="text"]:focus {
-            outline: none;
-            border-color: #00d9ff;
-            box-shadow: 0 0 20px rgba(0,217,255,0.2);
-        }
-        
-        button {
-            padding: 15px 30px;
-            background: linear-gradient(135deg, #00d9ff, #00ff88);
             border: none;
-            border-radius: 12px;
-            color: #1a1a2e;
+            background: transparent;
+            color: var(--white);
+            font-family: inherit;
+            font-size: 14px;
+            padding: 10px 8px;
+            outline: none;
+        }
+        
+        .search-input::placeholder {
+            color: var(--gray);
+        }
+        
+        .search-btn {
+            background: var(--green);
+            border: none;
+            color: var(--bg);
+            font-family: inherit;
             font-weight: bold;
-            font-size: 1em;
+            padding: 10px 16px;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: all 0.2s;
         }
         
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(0,217,255,0.3);
+        .search-btn:hover {
+            background: var(--cyan);
+            box-shadow: 0 0 15px var(--cyan);
         }
         
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .tab {
+            padding: 6px 12px;
+            color: var(--gray);
+            text-decoration: none;
+            font-size: 13px;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover {
+            color: var(--cyan);
+            border-color: var(--border);
+        }
+        
+        .tab.active {
+            color: var(--green);
+            border-color: var(--green);
+            text-shadow: 0 0 8px var(--green);
+        }
+        
+        /* Results info */
+        .results-info {
+            color: var(--gray);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px dashed var(--border);
+        }
+        
+        .results-info span {
+            color: var(--cyan);
+        }
+        
+        /* Results */
         .result {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 12px;
-            padding: 20px;
-            margin: 15px 0;
-            transition: all 0.3s;
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            padding: 16px;
+            border-left: 2px solid var(--border);
+            transition: all 0.2s;
         }
         
         .result:hover {
-            background: rgba(255,255,255,0.06);
-            border-color: rgba(0,217,255,0.3);
+            border-left-color: var(--green);
+            background: rgba(0, 255, 65, 0.02);
+        }
+        
+        .result-thumb {
+            flex-shrink: 0;
+            width: 120px;
+            height: 90px;
+            border: 1px solid var(--border);
+            background: var(--bg-alt);
+            overflow: hidden;
+        }
+        
+        .result-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: saturate(0.7) brightness(0.9);
+            transition: all 0.3s;
+        }
+        
+        .result:hover .result-thumb img {
+            filter: saturate(1) brightness(1);
+        }
+        
+        .result-thumb-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--gray);
+            font-size: 10px;
+        }
+        
+        .result-body {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .result-url {
+            color: var(--gray);
+            font-size: 12px;
+            margin-bottom: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .result-url::before {
+            content: "→ ";
+            color: var(--green);
         }
         
         .result-title {
-            font-size: 1.2em;
+            font-size: 16px;
             margin-bottom: 8px;
         }
         
         .result-title a {
-            color: #00d9ff;
+            color: var(--cyan);
             text-decoration: none;
+            text-shadow: 0 0 1px var(--cyan);
         }
         
         .result-title a:hover {
-            text-decoration: underline;
+            color: var(--green);
+            text-shadow: 0 0 8px var(--green);
         }
         
-        .result-url {
-            color: #00ff88;
-            font-size: 0.85em;
-            margin-bottom: 8px;
-            word-break: break-all;
+        .result-title a:visited {
+            color: var(--magenta);
         }
         
         .result-content {
-            color: #aaa;
-            line-height: 1.6;
+            color: var(--white);
+            font-size: 14px;
+            line-height: 1.7;
+            margin-bottom: 10px;
         }
         
-        .score-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.8em;
-            margin-top: 12px;
-        }
-        
-        .score-positive { background: rgba(0,255,136,0.15); color: #00ff88; }
-        .score-negative { background: rgba(255,100,100,0.15); color: #ff6464; }
-        .score-neutral { background: rgba(255,255,255,0.1); color: #888; }
-        
-        .score-detail {
-            display: inline-block;
-            padding: 3px 8px;
-            margin: 2px;
-            border-radius: 4px;
-            font-size: 0.75em;
-            background: rgba(255,255,255,0.05);
-        }
-        
-        .score-detail.score-penalty {
-            background: rgba(255,80,80,0.2);
-            color: #ff6464;
-        }
-        
-        .score-detail.score-boost {
-            background: rgba(0,255,136,0.15);
-            color: #00ff88;
-        }
-        
-        .engine-badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 0.75em;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            background: rgba(138, 43, 226, 0.2);
-            color: #b388ff;
-            margin-right: 8px;
-        }
-        
+        /* Meta tags */
         .result-meta {
             display: flex;
-            align-items: center;
-            flex-wrap: wrap;
             gap: 8px;
-            margin-bottom: 10px;
+            flex-wrap: wrap;
+            font-size: 11px;
         }
         
+        .tag {
+            padding: 2px 8px;
+            border: 1px solid var(--border);
+            color: var(--gray);
+        }
+        
+        .tag.engine {
+            border-color: var(--magenta);
+            color: var(--magenta);
+        }
+        
+        .tag.score {
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+        
+        .tag.boost {
+            border-color: var(--green);
+            color: var(--green);
+        }
+        
+        .tag.penalty {
+            border-color: var(--red);
+            color: var(--red);
+        }
+        
+        .tag.year {
+            border-color: var(--yellow);
+            color: var(--yellow);
+        }
+        
+        .tag.lang {
+            border-color: var(--orange);
+            color: var(--orange);
+        }
+        
+        /* Image grid */
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 12px;
+        }
+        
+        .image-result {
+            position: relative;
+            border: 1px solid var(--border);
+            background: var(--bg-alt);
+            overflow: hidden;
+            aspect-ratio: 1;
+        }
+        
+        .image-result:hover {
+            border-color: var(--green);
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+        }
+        
+        .image-result img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: saturate(0.8);
+            transition: all 0.3s;
+        }
+        
+        .image-result:hover img {
+            filter: saturate(1);
+        }
+        
+        .image-result a {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .image-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 8px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.9));
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        .image-result:hover .image-overlay {
+            opacity: 1;
+        }
+        
+        .image-title {
+            font-size: 11px;
+            color: var(--green);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .image-source {
+            font-size: 10px;
+            color: var(--gray);
+        }
+        
+        /* Pagination */
+        .pagination {
+            display: flex;
+            gap: 12px;
+            margin: 30px 0;
+            padding-top: 20px;
+            border-top: 1px dashed var(--border);
+        }
+        
+        .page-btn {
+            padding: 8px 16px;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--cyan);
+            text-decoration: none;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        
+        .page-btn:hover {
+            border-color: var(--green);
+            color: var(--green);
+            text-shadow: 0 0 8px var(--green);
+        }
+        
+        .page-info {
+            padding: 8px 16px;
+            color: var(--gray);
+        }
+        
+        /* No results */
         .no-results {
-            text-align: center;
-            padding: 60px 20px;
-            color: #666;
+            padding: 40px 0;
+            color: var(--red);
         }
         
-        .loading {
-            text-align: center;
-            padding: 40px;
+        .no-results::before {
+            content: "[ERROR] ";
+            color: var(--red);
         }
         
-        .legend {
-            background: rgba(255,255,255,0.03);
-            border-radius: 12px;
+        /* Homepage */
+        .home-container {
+            padding: 60px 30px;
+        }
+        
+        .ascii-logo {
+            color: var(--green);
+            font-size: 8px;
+            line-height: 1.1;
+            white-space: pre;
+            text-shadow: 0 0 20px var(--green);
+            margin-bottom: 30px;
+        }
+        
+        @media (max-width: 600px) {
+            .ascii-logo { font-size: 5px; }
+        }
+        
+        .home-search {
+            max-width: 600px;
+            margin-bottom: 30px;
+        }
+        
+        .home-info {
+            max-width: 600px;
+            border: 1px solid var(--border);
             padding: 20px;
-            margin: 20px 0;
-            font-size: 0.9em;
+            background: var(--bg-alt);
         }
         
-        .legend h3 {
-            color: #00d9ff;
-            margin-bottom: 10px;
+        .info-header {
+            color: var(--cyan);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
         }
         
-        .legend-item {
+        .info-row {
+            display: flex;
             margin: 8px 0;
-            color: #888;
+        }
+        
+        .info-label {
+            color: var(--magenta);
+            width: 120px;
+            flex-shrink: 0;
+        }
+        
+        .info-value {
+            color: var(--white);
+        }
+        
+        .info-value.green { color: var(--green); }
+        .info-value.yellow { color: var(--yellow); }
+        .info-value.red { color: var(--red); }
+        
+        .blink {
+            animation: blink 1s step-end infinite;
+        }
+        
+        @keyframes blink {
+            50% { opacity: 0; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🔍 Smart Search</h1>
-            <p class="subtitle">SearXNG with date-based ranking & factuality scoring</p>
-        </header>
+    {% if not query %}
+    <!-- Homepage -->
+    <div class="home-container">
+        <pre class="ascii-logo">
+   ██████╗ ██████╗ ███████╗███╗   ███╗ ██████╗ ███████╗███████╗ █████╗ ██████╗  ██████╗██╗  ██╗
+  ██╔════╝██╔═══██╗██╔════╝████╗ ████║██╔═══██╗██╔════╝██╔════╝██╔══██╗██╔══██╗██╔════╝██║  ██║
+  ██║     ██║   ██║███████╗██╔████╔██║██║   ██║███████╗█████╗  ███████║██████╔╝██║     ███████║
+  ██║     ██║   ██║╚════██║██║╚██╔╝██║██║   ██║╚════██║██╔══╝  ██╔══██║██╔══██╗██║     ██╔══██║
+  ╚██████╗╚██████╔╝███████║██║ ╚═╝ ██║╚██████╔╝███████║███████╗██║  ██║██║  ██║╚██████╗██║  ██║
+   ╚═════╝ ╚═════╝ ╚══════╝╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝
+        </pre>
         
-        <form action="/search" method="GET" class="search-box">
-            <input type="text" name="q" placeholder="Search the web..." value="{{ query or '' }}" autofocus>
-            <button type="submit">Search</button>
+        <form action="/search" method="GET" class="home-search">
+            <div class="search-box">
+                <span class="search-prompt">search@cosmo:~$</span>
+                <input type="text" name="q" class="search-input" placeholder="enter query..." autofocus>
+                <button type="submit" class="search-btn">EXEC</button>
+            </div>
         </form>
         
         {% if show_legend %}
-        <div class="legend">
-            <h3>📊 Ranking System</h3>
-            <div class="legend-item"># <strong>Position Score:</strong> Original ranking matters - 1st result gets 100 pts, 2nd gets 99, etc.</div>
-            <div class="legend-item">🌐 <strong>Language Priority:</strong> English & Romanian results get +50 pts, other languages get -80 pts</div>
-            <div class="legend-item">📅 <strong>Year Penalty:</strong> Results from after 2022 get -30 pts penalty</div>
-            <div class="legend-item">✅ <strong>Factuality Boost:</strong> Trusted sources (reuters, bbc, .gov, .edu) get +10-20 pts</div>
-            <div class="legend-item">⚠️ <strong>Factuality Penalty:</strong> Low-quality/misinformation sites get -20 to -90 pts</div>
+        <div class="home-info">
+            <div class="info-header">┌── system.info ──────────────────────────────</div>
+            <div class="info-row">
+                <span class="info-label">ranking</span>
+                <span class="info-value green">smart re-ranking enabled</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">position</span>
+                <span class="info-value">original order preserved as base</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">language</span>
+                <span class="info-value green">EN/RO boosted</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">date_filter</span>
+                <span class="info-value yellow">post-2022 penalized</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">factuality</span>
+                <span class="info-value green">trusted sources boosted</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">status</span>
+                <span class="info-value green">● online<span class="blink">_</span></span>
+            </div>
         </div>
         {% endif %}
+    </div>
+    
+    {% else %}
+    <!-- Search Results Page -->
+    <div class="container">
+        <div class="header">
+            <div class="header-row">
+                <a href="/" class="logo-small">CosmoSearch</a>
+                
+                <form action="/search" method="GET" class="search-form">
+                    <div class="search-box">
+                        <span class="search-prompt">~$</span>
+                        <input type="text" name="q" class="search-input" value="{{ query }}">
+                        <input type="hidden" name="tab" value="{{ current_tab }}">
+                        <button type="submit" class="search-btn">EXEC</button>
+                    </div>
+                </form>
+            </div>
+            
+            <div class="tabs">
+                {% for tab in tabs %}
+                <a href="/search?q={{ query }}&tab={{ tab.id }}" class="tab {{ 'active' if current_tab == tab.id else '' }}">{{ tab.name }}</a>
+                {% endfor %}
+            </div>
+        </div>
         
         {% if results %}
+            <div class="results-info">found <span>{{ results|length }}</span> results for "<span>{{ query }}</span>"</div>
+            
+            {% if current_tab == 'images' %}
+            <!-- Image Grid -->
+            <div class="image-grid">
+                {% for result in results %}
+                <div class="image-result">
+                    <a href="{{ result.url }}" target="_blank">
+                        {% if result.img_src or result.thumbnail %}
+                        <img src="{{ result.img_src or result.thumbnail }}" alt="{{ result.title }}" loading="lazy" onerror="this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;color:var(--gray);font-size:10px;\\'>NO_IMG</div>'">
+                        {% else %}
+                        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--gray);font-size:10px;">NO_IMG</div>
+                        {% endif %}
+                        <div class="image-overlay">
+                            <div class="image-title">{{ result.title[:40] }}{% if result.title|length > 40 %}...{% endif %}</div>
+                            <div class="image-source">{{ result._score_details.domain or 'unknown' }}</div>
+                        </div>
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <!-- Regular Results -->
             {% for result in results %}
             <div class="result">
-                <div class="result-meta">
-                    {% if result.engine %}
-                    <span class="engine-badge">{{ result.engine }}</span>
+                <div class="result-thumb">
+                    {% if result.img_src or result.thumbnail %}
+                    <img src="{{ result.img_src or result.thumbnail }}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'result-thumb-placeholder\\'>NO_IMG</div>'">
+                    {% else %}
+                    <div class="result-thumb-placeholder">NO_IMG</div>
                     {% endif %}
-                    <span class="result-url">{{ result.pretty_url or result.url }}</span>
                 </div>
-                <div class="result-title">
-                    <a href="{{ result.url }}" target="_blank">{{ result.title }}</a>
-                </div>
-                <div class="result-content">{{ result.content }}</div>
                 
-                {% set score = result._score or 0 %}
-                {% set details = result._score_details or {} %}
-                <div class="score-badge {{ 'score-positive' if score > 0 else ('score-negative' if score < 0 else 'score-neutral') }}">
-                    Score: {{ score }}
-                    {% if details.position_score %}
-                    <span class="score-detail score-boost">#{{ details.position }} (+{{ details.position_score }})</span>
-                    {% endif %}
-                    {% if details.language %}
-                    <span class="score-detail {{ 'score-penalty' if details.language_score < 0 else 'score-boost' }}">🌐 {{ details.language.upper() }} ({{ '%+d' % details.language_score }})</span>
-                    {% endif %}
-                    {% if details.year %}
-                    <span class="score-detail {{ 'score-penalty' if details.year_score < 0 else 'score-boost' }}">📅 {{ details.year }} ({{ '%+d' % details.year_score }})</span>
-                    {% endif %}
-                    {% if details.factuality_score != 0 %}
-                    <span class="score-detail {{ 'score-penalty' if details.factuality_score < 0 else 'score-boost' }}">{{ '✅' if details.factuality_score > 0 else '⚠️' }} {{ '%+d' % details.factuality_score }}</span>
-                    {% endif %}
+                <div class="result-body">
+                    <div class="result-url">{{ result._score_details.domain or 'unknown' }} :: {{ result.pretty_url or result.url }}</div>
+                    
+                    <div class="result-title">
+                        <a href="{{ result.url }}" target="_blank">{{ result.title }}</a>
+                    </div>
+                    
+                    <div class="result-content">{{ result.content }}</div>
+                    
+                    <div class="result-meta">
+                        {% if result.engine %}
+                        <span class="tag engine">{{ result.engine }}</span>
+                        {% endif %}
+                        
+                        <span class="tag score">score:{{ result._score }}</span>
+                        
+                        {% set details = result._score_details or {} %}
+                        {% if details.year %}
+                        <span class="tag year">{{ details.year }}{% if details.year_score != 0 %} ({{ '%+d' % details.year_score }}){% endif %}</span>
+                        {% endif %}
+                        
+                        {% if details.factuality_score and details.factuality_score != 0 %}
+                        <span class="tag {{ 'boost' if details.factuality_score > 0 else 'penalty' }}">
+                            fact:{{ '%+d' % details.factuality_score }}
+                        </span>
+                        {% endif %}
+                        
+                        {% if details.language %}
+                        <span class="tag lang">{{ details.language }}</span>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
             {% endfor %}
-        {% elif query %}
+            {% endif %}
+            
+            <!-- Pagination -->
+            <div class="pagination">
+                {% if page > 1 %}
+                <a href="/search?q={{ query }}&tab={{ current_tab }}&pageno={{ page - 1 }}" class="page-btn">[prev]</a>
+                {% endif %}
+                <span class="page-info">page {{ page }}</span>
+                <a href="/search?q={{ query }}&tab={{ current_tab }}&pageno={{ page + 1 }}" class="page-btn">[next]</a>
+            </div>
+            
+        {% else %}
             <div class="no-results">
-                <p>No results found for "{{ query }}"</p>
+                No results found for "{{ query }}"
             </div>
         {% endif %}
     </div>
+    {% endif %}
 </body>
 </html>
 '''
@@ -527,23 +929,37 @@ HTML_TEMPLATE = '''
 @app.route('/')
 def home():
     """Render the search homepage."""
-    return render_template_string(HTML_TEMPLATE, query=None, results=None, show_legend=True)
+    return render_template_string(HTML_TEMPLATE, query=None, results=None, show_legend=True, tabs=SEARCH_TABS, current_tab='general')
 
 
 @app.route('/search')
 def search():
     """Proxy search to SearXNG and re-rank results."""
     query = request.args.get('q', '')
+    page = request.args.get('pageno', 1, type=int)
+    current_tab = request.args.get('tab', 'general')
     
     if not query:
-        return render_template_string(HTML_TEMPLATE, query=None, results=None, show_legend=True)
+        return render_template_string(HTML_TEMPLATE, query=None, results=None, show_legend=True, page=1, tabs=SEARCH_TABS, current_tab='general')
+    
+    # Find the tab configuration
+    tab_config = next((t for t in SEARCH_TABS if t['id'] == current_tab), SEARCH_TABS[0])
     
     try:
         # Query SearXNG's JSON API
         params = {
             'q': query,
             'format': 'json',
+            'pageno': page,
         }
+        
+        # Add category if specified
+        if tab_config.get('categories'):
+            params['categories'] = tab_config['categories']
+        
+        # Add specific engines if specified
+        if tab_config.get('engines'):
+            params['engines'] = tab_config['engines']
         
         response = requests.get(f"{SEARXNG_URL}/search", params=params, timeout=30)
         response.raise_for_status()
@@ -554,20 +970,34 @@ def search():
         # Re-rank results
         ranked_results = rank_results(results)
         
-        return render_template_string(HTML_TEMPLATE, query=query, results=ranked_results, show_legend=False)
+        return render_template_string(
+            HTML_TEMPLATE, 
+            query=query, 
+            results=ranked_results, 
+            show_legend=False, 
+            page=page,
+            tabs=SEARCH_TABS,
+            current_tab=current_tab
+        )
     
     except requests.RequestException as e:
-        return render_template_string(HTML_TEMPLATE, 
-                                      query=query, 
-                                      results=None, 
-                                      show_legend=False,
-                                      error=str(e))
+        return render_template_string(
+            HTML_TEMPLATE, 
+            query=query, 
+            results=None, 
+            show_legend=False,
+            page=page,
+            tabs=SEARCH_TABS,
+            current_tab=current_tab,
+            error=str(e)
+        )
 
 
 @app.route('/api/search')
 def api_search():
     """JSON API endpoint for search."""
     query = request.args.get('q', '')
+    page = request.args.get('pageno', 1, type=int)
     
     if not query:
         return jsonify({'error': 'No query provided'}), 400
@@ -576,6 +1006,7 @@ def api_search():
         params = {
             'q': query,
             'format': 'json',
+            'pageno': page,
         }
         
         response = requests.get(f"{SEARXNG_URL}/search", params=params, timeout=30)
@@ -588,6 +1019,7 @@ def api_search():
         
         return jsonify({
             'query': query,
+            'page': page,
             'results': ranked_results,
             'count': len(ranked_results),
         })
