@@ -9,8 +9,6 @@ services:
   searxng:
     image: searxng/searxng:latest
     container_name: searxng
-    ports:
-      - "8080:8080"
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
@@ -25,3 +23,13 @@ services:
     depends_on:
       - tor
 
+  ranker:
+    build: ./ranker
+    container_name: ranker
+    ports:
+      - "5000:5000"
+    environment:
+      - SEARXNG_URL=http://searxng:8080
+    restart: unless-stopped
+    depends_on:
+      - searxng

@@ -6,6 +6,7 @@ A proxy service that sits in front of SearXNG and re-ranks results based on:
 - Site factuality (known low-quality sites get penalized)
 """
 
+import os
 import re
 import requests
 from datetime import datetime
@@ -16,7 +17,7 @@ from langdetect import detect, LangDetectException
 app = Flask(__name__)
 
 # Configuration
-SEARXNG_URL = "http://localhost:8080"
+SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://localhost:8080")
 RESULTS_PER_PAGE = 35
 
 # Year-based scoring configuration
