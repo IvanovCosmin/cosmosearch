@@ -1,6 +1,16 @@
 # SearXNG settings
 
-use_default_settings: true
+use_default_settings:
+  engines:
+    keep_only:
+      - google
+      - brave
+      - startpage
+      - wikipedia
+      - github
+      - arxiv
+      - annas archive
+      - z-library
 
 general:
   debug: false
@@ -24,6 +34,9 @@ server:
   image_proxy: true
   base_url: false
 
+redis:
+  url: redis://redis:6379/0
+
 ui:
   static_use_hash: true
   default_theme: simple
@@ -31,21 +44,22 @@ ui:
   infinite_scroll: true
   query_in_title: true
 
+outgoing:
+  request_timeout: 6.0
+
 engines:
   - name: google
-    engine: google
-    shortcut: g
     disabled: false
 
-  - name: duckduckgo
-    engine: duckduckgo
-    shortcut: ddg
+  - name: brave
+    disabled: false
+
+  - name: startpage
     disabled: false
 
   - name: wikipedia
-    engine: wikipedia
-    shortcut: wp
     disabled: false
+
   - name: wikipedia (ro)
     engine: wikipedia
     shortcut: wpro
@@ -53,24 +67,15 @@ engines:
     disabled: false
     
   - name: github
-    engine: github
-    shortcut: gh
     disabled: false
 
   - name: arxiv
-    engine: arxiv
-    shortcut: arx
     disabled: false
 
   - name: annas archive
-    engine: annas_archive
-    shortcut: aa
     disabled: false
     base_url: https://annas-archive.pm
-    timeout: 30.0
+    timeout: 6.0
 
   - name: z-library
-    engine: zlibrary
-    shortcut: zlib
     disabled: false
-
