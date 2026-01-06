@@ -84,7 +84,12 @@ PREFERRED_LANGUAGES = {
     'en': 1,  
     'ro': 1,  
 }
-NON_PREFERRED_LANGUAGE_PENALTY = 1 
+NON_PREFERRED_LANGUAGE_PENALTY = 1
+
+# Torrent engine penalties
+TORRENT_ENGINES = {
+    'bt4g': -5,
+} 
 
 
 def extract_year_from_result(result):
@@ -234,6 +239,18 @@ def calculate_language_score(lang):
         return -NON_PREFERRED_LANGUAGE_PENALTY
 
 
+def calculate_engine_score(engine):
+    """Calculate score adjustment based on search engine.
+    
+    Torrent engines get penalized.
+    """
+    if not engine:
+        return 0
+    
+    engine_lower = engine.lower()
+    return TORRENT_ENGINES.get(engine_lower, 0)
+
+
 def rank_results(results):
     """Re-rank results based on custom scoring."""
     scored_results = []
@@ -244,6 +261,7 @@ def rank_results(results):
         domain = get_domain(url)
         year = extract_year_from_result(result)
         lang = detect_language(result)
+        engine = result.get('engine', '')
         
         # Position score: first result gets max points, decreasing by 1 for each position
         # E.g., with 100 results: 1st = 100pts, 2nd = 99pts, ..., 100th = 1pt
@@ -253,7 +271,8 @@ def rank_results(results):
         year_score = calculate_year_score(year)
         factuality_score = calculate_factuality_score(domain)
         language_score = calculate_language_score(lang)
-        total_score = position_score + year_score + factuality_score + language_score
+        engine_score = calculate_engine_score(engine)
+        total_score = position_score + year_score + factuality_score + language_score + engine_score
         
         # Store scoring details
         result['_score'] = total_score
@@ -266,6 +285,8 @@ def rank_results(results):
             'factuality_score': factuality_score,
             'language': lang,
             'language_score': language_score,
+            'engine': engine,
+            'engine_score': engine_score,
         }
         
         scored_results.append(result)
@@ -276,6 +297,209 @@ def rank_results(results):
     return scored_results
 
 
+def get_dictionary_definition(word):
+    """
+    Fetch dictionary definition from Free Dictionary API.
+    Returns a snippet dict or None.
+    """
+    try:
+        # Free Dictionary API - no API key required
+        url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+        response = requests.get(url, timeout=3)
+        if response.ok:
+            data = response.json()
+            if data and isinstance(data, list) and len(data) > 0:
+                entry = data[0]
+                word_title = entry.get('word', word)
+                phonetic = entry.get('phonetic', '')
+                
+                # Get meanings
+                meanings = entry.get('meanings', [])
+                definitions = []
+                for meaning in meanings[:2]:  # Limit to 2 parts of speech
+                    part_of_speech = meaning.get('partOfSpeech', '')
+                    defs = meaning.get('definitions', [])
+                    if defs:
+                        def_text = defs[0].get('definition', '')
+                        example = defs[0].get('example', '')
+                        if def_text:
+                            entry_text = f"({part_of_speech}) {def_text}"
+                            if example:
+                                entry_text += f' — "{example}"'
+                            definitions.append(entry_text)
+                
+                if definitions:
+                    content = ' │ '.join(definitions)
+                    if phonetic:
+                        content = f"{phonetic}  {content}"
+                    
+                    return {
+                        'type': 'definition',
+                        'title': word_title.title(),
+                        'content': content,
+                        'source': 'Dictionary',
+                        'source_url': f"https://www.dictionary.com/browse/{word}",
+                        'image': None,
+                    }
+    except requests.RequestException:
+        pass
+    return None
+
+
+def is_dictionary_query(query):
+    """Check if the query looks like a dictionary/definition request."""
+    q = query.lower().strip()
+    
+    # Explicit definition patterns
+    patterns = ['define ', 'definition of ', 'meaning of ', 'what does ', 'what is the meaning of ']
+    for pattern in patterns:
+        if q.startswith(pattern):
+            return True, q[len(pattern):].strip().split()[0] if q[len(pattern):].strip() else None
+    
+    # Single word queries (likely dictionary lookups)
+    words = q.split()
+    if len(words) == 1 and len(q) >= 3 and q.isalpha():
+        return True, q
+    
+    return False, None
+
+
+def get_knowledge_snippet(query):
+    """
+    Fetch a knowledge snippet (Featured Snippet) for the query.
+    
+    Tries multiple sources:
+    1. Dictionary API for definition queries
+    2. DuckDuckGo Instant Answer API 
+    3. Wikipedia REST API for encyclopedic content
+    """
+    snippet = None
+    
+    # Check if this is a dictionary query first
+    is_dict_query, word = is_dictionary_query(query)
+    if is_dict_query and word:
+        snippet = get_dictionary_definition(word)
+        if snippet:
+            return snippet
+    
+    # Try DuckDuckGo Instant Answer API
+    try:
+        ddg_url = "https://api.duckduckgo.com/"
+        params = {
+            'q': query,
+            'format': 'json',
+            'no_html': 1,
+            'skip_disambig': 1,
+        }
+        response = requests.get(ddg_url, params=params, timeout=3)
+        if response.ok:
+            data = response.json()
+            
+            # Check for Abstract (usually from Wikipedia)
+            if data.get('Abstract'):
+                snippet = {
+                    'type': 'encyclopedia',
+                    'title': data.get('Heading', query),
+                    'content': data.get('Abstract'),
+                    'source': data.get('AbstractSource', 'Wikipedia'),
+                    'source_url': data.get('AbstractURL'),
+                    'image': data.get('Image'),
+                }
+            
+            # Check for Definition (usually from Wiktionary)
+            elif data.get('Definition'):
+                snippet = {
+                    'type': 'definition',
+                    'title': data.get('Heading', query),
+                    'content': data.get('Definition'),
+                    'source': data.get('DefinitionSource', 'Wiktionary'),
+                    'source_url': data.get('DefinitionURL'),
+                    'image': None,
+                }
+            
+            # Check for Answer (calculations, conversions, etc.)
+            elif data.get('Answer'):
+                snippet = {
+                    'type': 'answer',
+                    'title': query,
+                    'content': data.get('Answer'),
+                    'source': 'Instant Answer',
+                    'source_url': None,
+                    'image': None,
+                }
+            
+            # Check for Infobox data
+            elif data.get('Infobox') and data['Infobox'].get('content'):
+                infobox = data['Infobox']['content']
+                # Format infobox as key-value pairs
+                info_text = ' • '.join([f"{item.get('label', '')}: {item.get('value', '')}" 
+                                        for item in infobox[:5] if item.get('value')])
+                if info_text:
+                    snippet = {
+                        'type': 'infobox',
+                        'title': data.get('Heading', query),
+                        'content': info_text,
+                        'source': 'DuckDuckGo',
+                        'source_url': data.get('AbstractURL'),
+                        'image': data.get('Image'),
+                    }
+    except requests.RequestException:
+        pass
+    
+    # If DDG returned Wikipedia, try to get a richer summary from Wikipedia API
+    if snippet and snippet.get('source') == 'Wikipedia':
+        try:
+            # Extract the title from the Wikipedia URL or use the heading
+            wiki_title = snippet.get('title', query).replace(' ', '_')
+            wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{wiki_title}"
+            response = requests.get(wiki_url, timeout=3)
+            if response.ok:
+                wiki_data = response.json()
+                # Use the richer Wikipedia extract if it's longer
+                wiki_extract = wiki_data.get('extract', '')
+                if len(wiki_extract) > len(snippet.get('content', '')):
+                    snippet['content'] = wiki_extract
+                # Get a better thumbnail if available
+                if wiki_data.get('thumbnail'):
+                    snippet['image'] = wiki_data['thumbnail'].get('source')
+                # Update URL to the actual page
+                if wiki_data.get('content_urls', {}).get('desktop', {}).get('page'):
+                    snippet['source_url'] = wiki_data['content_urls']['desktop']['page']
+        except requests.RequestException:
+            pass
+    
+    # If no DDG result, try Wikipedia directly for common query patterns
+    if not snippet:
+        # Check if query looks like a "what is" or definitional query
+        q_lower = query.lower().strip()
+        patterns = ['what is ', 'who is ', 'who was ']
+        clean_query = q_lower
+        for pattern in patterns:
+            if q_lower.startswith(pattern):
+                clean_query = q_lower[len(pattern):].strip()
+                break
+        
+        try:
+            wiki_title = clean_query.replace(' ', '_')
+            wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{wiki_title}"
+            response = requests.get(wiki_url, timeout=3)
+            if response.ok:
+                wiki_data = response.json()
+                if wiki_data.get('extract') and wiki_data.get('type') != 'disambiguation':
+                    snippet = {
+                        'type': 'encyclopedia',
+                        'title': wiki_data.get('title', query),
+                        'content': wiki_data.get('extract'),
+                        'source': 'Wikipedia',
+                        'source_url': wiki_data.get('content_urls', {}).get('desktop', {}).get('page'),
+                        'image': wiki_data.get('thumbnail', {}).get('source') if wiki_data.get('thumbnail') else None,
+                    }
+        except requests.RequestException:
+            pass
+    
+    return snippet
+
+
 # Available search engines/categories
 SEARCH_TABS = [
     {'id': 'general', 'name': '[all]', 'engines': '', 'categories': 'general'},
@@ -283,7 +507,7 @@ SEARCH_TABS = [
     {'id': 'videos', 'name': '[vid]', 'engines': '', 'categories': 'videos'},
     {'id': 'news', 'name': '[news]', 'engines': '', 'categories': 'news'},
     {'id': 'science', 'name': '[sci]', 'engines': '', 'categories': 'science'},
-    {'id': 'files', 'name': '[files]', 'engines': '', 'categories': 'files'},
+    {'id': 'files', 'name': '[files]', 'engines': 'annas archive,z-library,bt4g', 'categories': 'files'},
 ]
 
 # HTML template for the search interface
@@ -933,6 +1157,133 @@ HTML_TEMPLATE = '''
             content: "» ";
             color: var(--green);
         }
+        
+        /* Knowledge Snippet / Featured Answer */
+        .knowledge-card {
+            background: var(--bg-alt);
+            border: 1px solid var(--cyan);
+            margin-bottom: 24px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .knowledge-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--cyan), var(--green), var(--cyan));
+            animation: knowledge-glow 2s ease-in-out infinite;
+        }
+        
+        @keyframes knowledge-glow {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+        
+        .knowledge-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-bottom: 1px dashed var(--border);
+            background: rgba(0, 212, 255, 0.05);
+        }
+        
+        .knowledge-icon {
+            color: var(--cyan);
+            font-size: 12px;
+        }
+        
+        .knowledge-label {
+            color: var(--cyan);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .knowledge-type {
+            color: var(--gray);
+            font-size: 11px;
+            margin-left: auto;
+        }
+        
+        .knowledge-body {
+            display: flex;
+            gap: 20px;
+            padding: 16px;
+        }
+        
+        .knowledge-image {
+            flex-shrink: 0;
+            width: 120px;
+            height: 120px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            overflow: hidden;
+        }
+        
+        .knowledge-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: saturate(0.8);
+        }
+        
+        .knowledge-content {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .knowledge-title {
+            color: var(--green);
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+        }
+        
+        .knowledge-text {
+            color: var(--white);
+            font-size: 14px;
+            line-height: 1.7;
+            margin-bottom: 12px;
+        }
+        
+        .knowledge-text.definition::before {
+            content: "› ";
+            color: var(--magenta);
+        }
+        
+        .knowledge-source {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--gray);
+            font-size: 12px;
+            text-decoration: none;
+            padding: 4px 10px;
+            border: 1px solid var(--border);
+            transition: all 0.2s;
+        }
+        
+        .knowledge-source:hover {
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+        
+        .knowledge-source::before {
+            content: "→";
+            color: var(--green);
+        }
+        
+        .knowledge-source-icon {
+            width: 14px;
+            height: 14px;
+            border-radius: 2px;
+        }
     </style>
 </head>
 <body>
@@ -1020,6 +1371,36 @@ HTML_TEMPLATE = '''
         {% if results %}
             <div class="results-info">found <span>{{ results|length }}</span> results for "<span>{{ query }}</span>"</div>
             
+            {% if knowledge and current_tab == 'general' %}
+            <!-- Knowledge Snippet / Featured Answer -->
+            <div class="knowledge-card">
+                <div class="knowledge-header">
+                    <span class="knowledge-icon">◆</span>
+                    <span class="knowledge-label">Knowledge Base</span>
+                    <span class="knowledge-type">{{ knowledge.type | upper }}</span>
+                </div>
+                <div class="knowledge-body">
+                    {% if knowledge.image %}
+                    <div class="knowledge-image">
+                        <img src="{{ knowledge.image }}" alt="{{ knowledge.title }}" onerror="this.parentElement.remove()">
+                    </div>
+                    {% endif %}
+                    <div class="knowledge-content">
+                        <div class="knowledge-title">{{ knowledge.title }}</div>
+                        <div class="knowledge-text {{ 'definition' if knowledge.type == 'definition' else '' }}">{{ knowledge.content[:500] }}{% if knowledge.content|length > 500 %}...{% endif %}</div>
+                        {% if knowledge.source_url %}
+                        <a href="{{ knowledge.source_url }}" target="_blank" class="knowledge-source">
+                            <img class="knowledge-source-icon" src="https://www.google.com/s2/favicons?domain={{ knowledge.source_url }}&sz=32" alt="" onerror="this.style.display='none'">
+                            {{ knowledge.source }}
+                        </a>
+                        {% else %}
+                        <span class="knowledge-source">{{ knowledge.source }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
             {% if current_tab == 'images' %}
             <!-- Image Grid - Full Width -->
             </div>
@@ -1092,6 +1473,12 @@ HTML_TEMPLATE = '''
                                 <div class="tooltip-row">
                                     <span class="tooltip-label">language ({{ details.language }})</span>
                                     <span class="tooltip-value {{ 'positive' if details.language_score > 0 else ('negative' if details.language_score < 0 else 'neutral') }}">{{ '%+d' % details.language_score if details.language_score else '0' }}</span>
+                                </div>
+                                {% endif %}
+                                {% if details.engine_score %}
+                                <div class="tooltip-row">
+                                    <span class="tooltip-label">engine penalty</span>
+                                    <span class="tooltip-value negative">{{ '%+d' % details.engine_score }}</span>
                                 </div>
                                 {% endif %}
                                 <div class="tooltip-row tooltip-total">
@@ -1252,6 +1639,11 @@ def search():
     # Find the tab configuration
     tab_config = next((t for t in SEARCH_TABS if t['id'] == current_tab), SEARCH_TABS[0])
     
+    # Fetch knowledge snippet (only on first page for general tab)
+    knowledge = None
+    if page == 1 and current_tab == 'general':
+        knowledge = get_knowledge_snippet(query)
+    
     try:
         # Query SearXNG's JSON API
         params = {
@@ -1287,7 +1679,8 @@ def search():
             show_legend=False, 
             page=page,
             tabs=SEARCH_TABS,
-            current_tab=current_tab
+            current_tab=current_tab,
+            knowledge=knowledge
         )
     
     except requests.RequestException as e:
@@ -1299,6 +1692,7 @@ def search():
             page=page,
             tabs=SEARCH_TABS,
             current_tab=current_tab,
+            knowledge=knowledge,
             error=str(e)
         )
 
@@ -1349,6 +1743,7 @@ def api_config():
         'tld_bonuses': TLD_BONUSES,
         'preferred_languages': PREFERRED_LANGUAGES,
         'non_preferred_language_penalty': NON_PREFERRED_LANGUAGE_PENALTY,
+        'torrent_engines': TORRENT_ENGINES,
     })
 
 

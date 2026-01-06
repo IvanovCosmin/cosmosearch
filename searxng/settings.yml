@@ -11,6 +11,7 @@ use_default_settings:
       - arxiv
       - annas archive
       - z-library
+      - bt4g
 
 general:
   debug: false
@@ -78,4 +79,7 @@ engines:
     timeout: 6.0
 
   - name: z-library
+    disabled: false
+
+  - name: bt4g
     disabled: false
