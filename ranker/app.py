@@ -17,6 +17,7 @@ app = Flask(__name__)
 
 # Configuration
 SEARXNG_URL = "http://localhost:8080"
+RESULTS_PER_PAGE = 35
 
 # Year-based scoring configuration
 PIVOT_YEAR = 2022
@@ -475,6 +476,10 @@ HTML_TEMPLATE = '''
             overflow: hidden;
         }
         
+        .result-thumb:empty {
+            display: none;
+        }
+        
         .result-thumb img {
             width: 100%;
             height: 100%;
@@ -487,25 +492,28 @@ HTML_TEMPLATE = '''
             filter: saturate(1) brightness(1);
         }
         
-        .result-thumb-placeholder {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--gray);
-            font-size: 10px;
-        }
-        
         .result-body {
             flex: 1;
             min-width: 0;
         }
         
+        .result-url-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        
+        .favicon {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            border-radius: 2px;
+        }
+        
         .result-url {
             color: var(--gray);
             font-size: 12px;
-            margin-bottom: 4px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -557,14 +565,33 @@ HTML_TEMPLATE = '''
             color: var(--gray);
         }
         
-        .tag.engine {
-            border-color: var(--magenta);
-            color: var(--magenta);
-        }
+        /* Engine brand colors */
+        .tag.engine { border-color: var(--magenta); color: var(--magenta); }
+        .tag.engine-google { border-color: #4285f4; color: #4285f4; }
+        .tag.engine-bing { border-color: #00809d; color: #00809d; }
+        .tag.engine-duckduckgo { border-color: #de5833; color: #de5833; }
+        .tag.engine-yahoo { border-color: #6001d2; color: #6001d2; }
+        .tag.engine-brave { border-color: #fb542b; color: #fb542b; }
+        .tag.engine-wikipedia { border-color: #636466; color: #a2a9b1; }
+        .tag.engine-reddit { border-color: #ff4500; color: #ff4500; }
+        .tag.engine-youtube { border-color: #ff0000; color: #ff0000; }
+        .tag.engine-github { border-color: #6e5494; color: #a479e2; }
+        .tag.engine-arxiv { border-color: #b31b1b; color: #b31b1b; }
+        .tag.engine-stackoverflow { border-color: #f48024; color: #f48024; }
+        .tag.engine-wolframalpha { border-color: #dd1100; color: #dd1100; }
+        .tag.engine-qwant { border-color: #5c97ff; color: #5c97ff; }
+        .tag.engine-startpage { border-color: #6573ff; color: #6573ff; }
+        .tag.engine-mojeek { border-color: #007c91; color: #007c91; }
+        .tag.engine-yandex { border-color: #ffcc00; color: #ffcc00; }
+        .tag.engine-baidu { border-color: #2932e1; color: #2932e1; }
+        .tag.engine-ecosia { border-color: #3faa4d; color: #3faa4d; }
+        .tag.engine-swisscows { border-color: #e10050; color: #e10050; }
         
         .tag.score {
             border-color: var(--cyan);
             color: var(--cyan);
+            position: relative;
+            cursor: help;
         }
         
         .tag.boost {
@@ -587,11 +614,71 @@ HTML_TEMPLATE = '''
             color: var(--orange);
         }
         
-        /* Image grid */
-        .image-grid {
+        /* Score tooltip */
+        .score-tooltip {
+            position: relative;
+            cursor: help;
+        }
+        
+        .score-tooltip .tooltip-content {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            margin-bottom: 8px;
+            background: var(--bg);
+            border: 1px solid var(--green);
+            padding: 12px;
+            min-width: 220px;
+            z-index: 100;
+            box-shadow: 0 0 20px rgba(0, 255, 65, 0.2);
+        }
+        
+        .score-tooltip:hover .tooltip-content {
+            display: block;
+        }
+        
+        .tooltip-header {
+            color: var(--green);
+            border-bottom: 1px dashed var(--border);
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        
+        .tooltip-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 4px 0;
+        }
+        
+        .tooltip-label {
+            color: var(--gray);
+        }
+        
+        .tooltip-value {
+            color: var(--white);
+        }
+        
+        .tooltip-value.positive { color: var(--green); }
+        .tooltip-value.negative { color: var(--red); }
+        .tooltip-value.neutral { color: var(--gray); }
+        
+        .tooltip-total {
+            border-top: 1px solid var(--border);
+            margin-top: 8px;
+            padding-top: 8px;
+            color: var(--cyan);
+            font-weight: bold;
+        }
+        
+        /* Image grid - full width */
+        .image-grid-fullwidth {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-            gap: 12px;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 8px;
+            padding: 20px;
+            width: 100%;
         }
         
         .image-result {
@@ -839,38 +926,39 @@ HTML_TEMPLATE = '''
             <div class="results-info">found <span>{{ results|length }}</span> results for "<span>{{ query }}</span>"</div>
             
             {% if current_tab == 'images' %}
-            <!-- Image Grid -->
-            <div class="image-grid">
+            <!-- Image Grid - Full Width -->
+            </div>
+            <div class="image-grid-fullwidth">
                 {% for result in results %}
-                <div class="image-result">
+                {% if result.img_src or result.thumbnail %}
+                <div class="image-result" data-img="{{ result.img_src or result.thumbnail }}">
                     <a href="{{ result.url }}" target="_blank">
-                        {% if result.img_src or result.thumbnail %}
-                        <img src="{{ result.img_src or result.thumbnail }}" alt="{{ result.title }}" loading="lazy" onerror="this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;color:var(--gray);font-size:10px;\\'>NO_IMG</div>'">
-                        {% else %}
-                        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--gray);font-size:10px;">NO_IMG</div>
-                        {% endif %}
+                        <img src="{{ result.img_src or result.thumbnail }}" alt="{{ result.title }}" loading="lazy" onerror="this.closest('.image-result').remove()">
                         <div class="image-overlay">
                             <div class="image-title">{{ result.title[:40] }}{% if result.title|length > 40 %}...{% endif %}</div>
                             <div class="image-source">{{ result._score_details.domain or 'unknown' }}</div>
                         </div>
                     </a>
                 </div>
+                {% endif %}
                 {% endfor %}
             </div>
+            <div class="container">
             {% else %}
             <!-- Regular Results -->
             {% for result in results %}
             <div class="result">
+                {% if result.img_src or result.thumbnail %}
                 <div class="result-thumb">
-                    {% if result.img_src or result.thumbnail %}
-                    <img src="{{ result.img_src or result.thumbnail }}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'result-thumb-placeholder\\'>NO_IMG</div>'">
-                    {% else %}
-                    <div class="result-thumb-placeholder">NO_IMG</div>
-                    {% endif %}
+                    <img src="{{ result.img_src or result.thumbnail }}" alt="" loading="lazy" onerror="this.parentElement.remove()">
                 </div>
+                {% endif %}
                 
                 <div class="result-body">
-                    <div class="result-url">{{ result._score_details.domain or 'unknown' }} :: {{ result.pretty_url or result.url }}</div>
+                    <div class="result-url-row">
+                        <img class="favicon" src="https://www.google.com/s2/favicons?domain={{ result._score_details.domain or '' }}&sz=32" alt="" onerror="this.style.display='none'">
+                        <span class="result-url">{{ result._score_details.domain or 'unknown' }} :: {{ result.pretty_url or result.url }}</span>
+                    </div>
                     
                     <div class="result-title">
                         <a href="{{ result.url }}" target="_blank">{{ result.title }}</a>
@@ -880,20 +968,46 @@ HTML_TEMPLATE = '''
                     
                     <div class="result-meta">
                         {% if result.engine %}
-                        <span class="tag engine">{{ result.engine }}</span>
+                        {% set engine_lower = result.engine|lower|replace(' ', '')|replace('images', '')|replace('videos', '') %}
+                        <span class="tag engine engine-{{ engine_lower }}">{{ result.engine }}</span>
                         {% endif %}
-                        
-                        <span class="tag score">score:{{ result._score }}</span>
                         
                         {% set details = result._score_details or {} %}
-                        {% if details.year %}
-                        <span class="tag year">{{ details.year }}{% if details.year_score != 0 %} ({{ '%+d' % details.year_score }}){% endif %}</span>
-                        {% endif %}
+                        <div class="score-tooltip">
+                            <span class="tag score">score:{{ result._score }}</span>
+                            <div class="tooltip-content">
+                                <div class="tooltip-header">[ SCORE BREAKDOWN ]</div>
+                                <div class="tooltip-row">
+                                    <span class="tooltip-label">position #{{ details.position }}</span>
+                                    <span class="tooltip-value positive">+{{ details.position_score }}</span>
+                                </div>
+                                {% if details.year %}
+                                <div class="tooltip-row">
+                                    <span class="tooltip-label">year {{ details.year }}</span>
+                                    <span class="tooltip-value {{ 'positive' if details.year_score > 0 else ('negative' if details.year_score < 0 else 'neutral') }}">{{ '%+d' % details.year_score if details.year_score else '0' }}</span>
+                                </div>
+                                {% endif %}
+                                {% if details.factuality_score %}
+                                <div class="tooltip-row">
+                                    <span class="tooltip-label">factuality</span>
+                                    <span class="tooltip-value {{ 'positive' if details.factuality_score > 0 else 'negative' }}">{{ '%+d' % details.factuality_score }}</span>
+                                </div>
+                                {% endif %}
+                                {% if details.language %}
+                                <div class="tooltip-row">
+                                    <span class="tooltip-label">language ({{ details.language }})</span>
+                                    <span class="tooltip-value {{ 'positive' if details.language_score > 0 else ('negative' if details.language_score < 0 else 'neutral') }}">{{ '%+d' % details.language_score if details.language_score else '0' }}</span>
+                                </div>
+                                {% endif %}
+                                <div class="tooltip-row tooltip-total">
+                                    <span>TOTAL</span>
+                                    <span>{{ result._score }}</span>
+                                </div>
+                            </div>
+                        </div>
                         
-                        {% if details.factuality_score and details.factuality_score != 0 %}
-                        <span class="tag {{ 'boost' if details.factuality_score > 0 else 'penalty' }}">
-                            fact:{{ '%+d' % details.factuality_score }}
-                        </span>
+                        {% if details.year %}
+                        <span class="tag year">{{ details.year }}</span>
                         {% endif %}
                         
                         {% if details.language %}
@@ -910,7 +1024,7 @@ HTML_TEMPLATE = '''
                 {% if page > 1 %}
                 <a href="/search?q={{ query }}&tab={{ current_tab }}&pageno={{ page - 1 }}" class="page-btn">[prev]</a>
                 {% endif %}
-                <span class="page-info">page {{ page }}</span>
+                <span class="page-info">page {{ page }} | {{ results|length }} results</span>
                 <a href="/search?q={{ query }}&tab={{ current_tab }}&pageno={{ page + 1 }}" class="page-btn">[next]</a>
             </div>
             
@@ -969,6 +1083,9 @@ def search():
         
         # Re-rank results
         ranked_results = rank_results(results)
+        
+        # Limit to RESULTS_PER_PAGE
+        ranked_results = ranked_results[:RESULTS_PER_PAGE]
         
         return render_template_string(
             HTML_TEMPLATE, 
