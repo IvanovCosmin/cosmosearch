@@ -640,6 +640,12 @@ HTML_TEMPLATE = '''
             user-select: none;
         }
         
+        .search-prompt-mobile {
+            color: var(--green);
+            padding: 10px 0 10px 12px;
+            user-select: none;
+        }
+        
         .search-input {
             flex: 1;
             border: none;
@@ -1091,6 +1097,14 @@ HTML_TEMPLATE = '''
         
         @media (max-width: 600px) {
             .ascii-logo { font-size: 5px; }
+            .container { padding: 10px 10px; }
+            .home-container { padding: 30px 10px; }
+            .search-prompt-full { display: none; }
+            .search-prompt-mobile { display: inline; }
+        }
+        
+        @media (min-width: 601px) {
+            .search-prompt-mobile { display: none; }
         }
         
         .home-search {
@@ -1338,7 +1352,8 @@ HTML_TEMPLATE = '''
         <form action="/search" method="GET" class="home-search">
             <div class="search-wrapper">
                 <div class="search-box">
-                    <span class="search-prompt">search@cosmo:~$</span>
+                    <span class="search-prompt search-prompt-full">search@cosmo:~$</span>
+                    <span class="search-prompt-mobile">~$</span>
                     <input type="text" name="q" class="search-input" id="search-home" placeholder="enter query..." autofocus autocomplete="off">
                     <select name="language" class="lang-select" title="Search language">
                         <option value="auto">AUTO</option>
@@ -1355,7 +1370,7 @@ HTML_TEMPLATE = '''
                         <option value="zh">ZH</option>
                         <option value="ro">RO</option>
                     </select>
-                    <button type="submit" class="search-btn">EXEC</button>
+                    <button type="submit" class="search-btn">Go</button>
                 </div>
                 <div class="autocomplete-dropdown" id="autocomplete-home"></div>
             </div>
@@ -1420,7 +1435,7 @@ HTML_TEMPLATE = '''
                                 <option value="zh" {{ 'selected' if current_language == 'zh' else '' }}>ZH</option>
                                 <option value="ro" {{ 'selected' if current_language == 'ro' else '' }}>RO</option>
                             </select>
-                            <button type="submit" class="search-btn">EXEC</button>
+                            <button type="submit" class="search-btn">Go</button>
                         </div>
                         <div class="autocomplete-dropdown" id="autocomplete-results"></div>
                     </div>
