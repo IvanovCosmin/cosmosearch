@@ -679,30 +679,40 @@ HTML_TEMPLATE = '''
         
         /* Language dropdown */
         .lang-select {
-            background: var(--bg);
+            background: transparent;
             border: none;
             border-left: 1px solid var(--border);
-            color: var(--cyan);
+            color: var(--magenta);
             font-family: inherit;
-            font-size: 12px;
-            padding: 10px 8px;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 10px 6px;
             cursor: pointer;
             outline: none;
             appearance: none;
             -webkit-appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%2300d4ff' d='M0 2l4 4 4-4z'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 8 8'%3E%3Cpath fill='%23ff00ff' d='M0 2l4 4 4-4z'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
-            background-position: right 6px center;
-            padding-right: 20px;
+            background-position: right 4px center;
+            padding-right: 14px;
+            min-width: 42px;
+            text-align: center;
         }
         
         .lang-select:hover {
             color: var(--green);
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6' viewBox='0 0 8 8'%3E%3Cpath fill='%2300ff41' d='M0 2l4 4 4-4z'/%3E%3C/svg%3E");
+        }
+        
+        .lang-select:focus {
+            color: var(--cyan);
+            border-left-color: var(--cyan);
         }
         
         .lang-select option {
             background: var(--bg);
             color: var(--white);
+            padding: 8px;
         }
         
         /* Tabs */
@@ -1101,6 +1111,31 @@ HTML_TEMPLATE = '''
             .home-container { padding: 30px 10px; }
             .search-prompt-full { display: none; }
             .search-prompt-mobile { display: inline; }
+            .search-form { min-width: unset; }
+            .search-wrapper { min-width: unset; }
+            .lang-select { 
+                font-size: 10px;
+                padding: 8px 4px;
+                padding-right: 12px;
+                min-width: 36px;
+                border-left: none;
+            }
+            .search-btn {
+                padding: 8px 10px;
+                font-size: 12px;
+            }
+            .search-input {
+                padding: 8px 6px;
+                font-size: 14px;
+                min-width: 0;
+            }
+            .search-prompt-mobile {
+                padding: 8px 0 8px 8px;
+                font-size: 12px;
+            }
+            .search-box {
+                border: 1px solid var(--green);
+            }
         }
         
         @media (min-width: 601px) {
@@ -1354,7 +1389,7 @@ HTML_TEMPLATE = '''
                 <div class="search-box">
                     <span class="search-prompt search-prompt-full">search@cosmo:~$</span>
                     <span class="search-prompt-mobile">~$</span>
-                    <input type="text" name="q" class="search-input" id="search-home" placeholder="enter query..." autofocus autocomplete="off">
+                    <input type="search" name="q" class="search-input" id="search-home" placeholder="enter query..." autofocus autocomplete="off" enterkeyhint="go">
                     <select name="language" class="lang-select" title="Search language">
                         <option value="auto">AUTO</option>
                         <option value="en" selected>EN</option>
@@ -1418,7 +1453,7 @@ HTML_TEMPLATE = '''
                     <div class="search-wrapper">
                         <div class="search-box">
                             <span class="search-prompt">~$</span>
-                            <input type="text" name="q" class="search-input" id="search-results" value="{{ query }}" autocomplete="off">
+                            <input type="search" name="q" class="search-input" id="search-results" value="{{ query }}" autocomplete="off" enterkeyhint="go">
                             <input type="hidden" name="tab" value="{{ current_tab }}">
                             <select name="language" class="lang-select" title="Search language">
                                 <option value="auto" {{ 'selected' if current_language == 'auto' else '' }}>AUTO</option>
