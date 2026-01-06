@@ -46,6 +46,8 @@ LOW_FACTUALITY_SITES = {
     
     'rt.com': 5,
     'sputniknews.com': 5,
+    'quora.com': 5,
+    'medium.com': 5,
 }
 
 # High factuality sites get a boost
@@ -292,6 +294,7 @@ HTML_TEMPLATE = '''
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% if query %}{{ query }} - {% endif %}CosmoSearch</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%230a0a0a' width='32' height='32'/%3E%3Cpath fill='%2300ff41' d='M24 6H10a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14v-4H12V10h12V6z'/%3E%3Cpath fill='%2300ff41' opacity='0.6' d='M12 10h4v4h-4zM12 18h4v4h-4z'/%3E%3C/svg%3E">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
