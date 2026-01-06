@@ -397,13 +397,17 @@ def get_knowledge_snippet(query):
             
             # Check for Abstract (usually from Wikipedia)
             if data.get('Abstract'):
+                # DuckDuckGo returns relative image URLs, convert to absolute
+                ddg_image = data.get('Image')
+                if ddg_image and ddg_image.startswith('/'):
+                    ddg_image = f"https://duckduckgo.com{ddg_image}"
                 snippet = {
                     'type': 'encyclopedia',
                     'title': data.get('Heading', query),
                     'content': data.get('Abstract'),
                     'source': data.get('AbstractSource', 'Wikipedia'),
                     'source_url': data.get('AbstractURL'),
-                    'image': data.get('Image'),
+                    'image': ddg_image,
                 }
             
             # Check for Definition (usually from Wiktionary)
@@ -435,13 +439,17 @@ def get_knowledge_snippet(query):
                 info_text = ' • '.join([f"{item.get('label', '')}: {item.get('value', '')}" 
                                         for item in infobox[:5] if item.get('value')])
                 if info_text:
+                    # DuckDuckGo returns relative image URLs, convert to absolute
+                    ddg_image = data.get('Image')
+                    if ddg_image and ddg_image.startswith('/'):
+                        ddg_image = f"https://duckduckgo.com{ddg_image}"
                     snippet = {
                         'type': 'infobox',
                         'title': data.get('Heading', query),
                         'content': info_text,
                         'source': 'DuckDuckGo',
                         'source_url': data.get('AbstractURL'),
-                        'image': data.get('Image'),
+                        'image': ddg_image,
                     }
     except requests.RequestException:
         pass
