@@ -57,7 +57,20 @@ engines:
     shortcut: gh
     disabled: false
 
-  - name: stackoverflow
-    engine: stackoverflow
-    shortcut: st
+  - name: arxiv
+    engine: arxiv
+    shortcut: arx
     disabled: false
+
+  - name: annas archive
+    engine: annas_archive
+    shortcut: aa
+    disabled: false
+    base_url: https://annas-archive.pm
+    timeout: 30.0
+
+  - name: z-library
+    engine: zlibrary
+    shortcut: zlib
+    disabled: false
+

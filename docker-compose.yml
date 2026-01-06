@@ -1,6 +1,11 @@
 version: '3.8'
 
 services:
+  tor:
+    image: dperson/torproxy:latest
+    container_name: tor
+    restart: unless-stopped
+
   searxng:
     image: searxng/searxng:latest
     container_name: searxng
@@ -17,4 +22,6 @@ services:
       - SETGID
       - SETUID
     restart: unless-stopped
+    depends_on:
+      - tor
 
