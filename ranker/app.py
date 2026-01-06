@@ -671,6 +671,34 @@ HTML_TEMPLATE = '''
             box-shadow: 0 0 15px var(--cyan);
         }
         
+        /* Language dropdown */
+        .lang-select {
+            background: var(--bg);
+            border: none;
+            border-left: 1px solid var(--border);
+            color: var(--cyan);
+            font-family: inherit;
+            font-size: 12px;
+            padding: 10px 8px;
+            cursor: pointer;
+            outline: none;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cpath fill='%2300d4ff' d='M0 2l4 4 4-4z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 6px center;
+            padding-right: 20px;
+        }
+        
+        .lang-select:hover {
+            color: var(--green);
+        }
+        
+        .lang-select option {
+            background: var(--bg);
+            color: var(--white);
+        }
+        
         /* Tabs */
         .tabs {
             display: flex;
@@ -1312,6 +1340,21 @@ HTML_TEMPLATE = '''
                 <div class="search-box">
                     <span class="search-prompt">search@cosmo:~$</span>
                     <input type="text" name="q" class="search-input" id="search-home" placeholder="enter query..." autofocus autocomplete="off">
+                    <select name="language" class="lang-select" title="Search language">
+                        <option value="auto">AUTO</option>
+                        <option value="en" selected>EN</option>
+                        <option value="de">DE</option>
+                        <option value="fr">FR</option>
+                        <option value="es">ES</option>
+                        <option value="it">IT</option>
+                        <option value="pt">PT</option>
+                        <option value="nl">NL</option>
+                        <option value="pl">PL</option>
+                        <option value="ru">RU</option>
+                        <option value="ja">JA</option>
+                        <option value="zh">ZH</option>
+                        <option value="ro">RO</option>
+                    </select>
                     <button type="submit" class="search-btn">EXEC</button>
                 </div>
                 <div class="autocomplete-dropdown" id="autocomplete-home"></div>
@@ -1362,6 +1405,21 @@ HTML_TEMPLATE = '''
                             <span class="search-prompt">~$</span>
                             <input type="text" name="q" class="search-input" id="search-results" value="{{ query }}" autocomplete="off">
                             <input type="hidden" name="tab" value="{{ current_tab }}">
+                            <select name="language" class="lang-select" title="Search language">
+                                <option value="auto" {{ 'selected' if current_language == 'auto' else '' }}>AUTO</option>
+                                <option value="en" {{ 'selected' if current_language == 'en' else '' }}>EN</option>
+                                <option value="de" {{ 'selected' if current_language == 'de' else '' }}>DE</option>
+                                <option value="fr" {{ 'selected' if current_language == 'fr' else '' }}>FR</option>
+                                <option value="es" {{ 'selected' if current_language == 'es' else '' }}>ES</option>
+                                <option value="it" {{ 'selected' if current_language == 'it' else '' }}>IT</option>
+                                <option value="pt" {{ 'selected' if current_language == 'pt' else '' }}>PT</option>
+                                <option value="nl" {{ 'selected' if current_language == 'nl' else '' }}>NL</option>
+                                <option value="pl" {{ 'selected' if current_language == 'pl' else '' }}>PL</option>
+                                <option value="ru" {{ 'selected' if current_language == 'ru' else '' }}>RU</option>
+                                <option value="ja" {{ 'selected' if current_language == 'ja' else '' }}>JA</option>
+                                <option value="zh" {{ 'selected' if current_language == 'zh' else '' }}>ZH</option>
+                                <option value="ro" {{ 'selected' if current_language == 'ro' else '' }}>RO</option>
+                            </select>
                             <button type="submit" class="search-btn">EXEC</button>
                         </div>
                         <div class="autocomplete-dropdown" id="autocomplete-results"></div>
@@ -1371,7 +1429,7 @@ HTML_TEMPLATE = '''
             
             <div class="tabs">
                 {% for tab in tabs %}
-                <a href="/search?q={{ query }}&tab={{ tab.id }}" class="tab {{ 'active' if current_tab == tab.id else '' }}">{{ tab.name }}</a>
+                <a href="/search?q={{ query }}&tab={{ tab.id }}&language={{ current_language }}" class="tab {{ 'active' if current_tab == tab.id else '' }}">{{ tab.name }}</a>
                 {% endfor %}
             </div>
         </div>
@@ -1512,10 +1570,10 @@ HTML_TEMPLATE = '''
             <!-- Pagination -->
             <div class="pagination">
                 {% if page > 1 %}
-                <a href="/search?q={{ query }}&tab={{ current_tab }}&pageno={{ page - 1 }}" class="page-btn">[prev]</a>
+                <a href="/search?q={{ query }}&tab={{ current_tab }}&language={{ current_language }}&pageno={{ page - 1 }}" class="page-btn">[prev]</a>
                 {% endif %}
                 <span class="page-info">page {{ page }} | {{ results|length }} results</span>
-                <a href="/search?q={{ query }}&tab={{ current_tab }}&pageno={{ page + 1 }}" class="page-btn">[next]</a>
+                <a href="/search?q={{ query }}&tab={{ current_tab }}&language={{ current_language }}&pageno={{ page + 1 }}" class="page-btn">[next]</a>
             </div>
             
         {% else %}
@@ -1640,9 +1698,10 @@ def search():
     query = request.args.get('q', '')
     page = request.args.get('pageno', 1, type=int)
     current_tab = request.args.get('tab', 'general')
+    current_language = request.args.get('language', 'en')
     
     if not query:
-        return render_template_string(HTML_TEMPLATE, query=None, results=None, show_legend=True, page=1, tabs=SEARCH_TABS, current_tab='general')
+        return render_template_string(HTML_TEMPLATE, query=None, results=None, show_legend=True, page=1, tabs=SEARCH_TABS, current_tab='general', current_language='en')
     
     # Find the tab configuration
     tab_config = next((t for t in SEARCH_TABS if t['id'] == current_tab), SEARCH_TABS[0])
@@ -1659,6 +1718,10 @@ def search():
             'format': 'json',
             'pageno': page,
         }
+        
+        # Add language if not auto
+        if current_language and current_language != 'auto':
+            params['language'] = current_language
         
         # Add category if specified
         if tab_config.get('categories'):
@@ -1688,6 +1751,7 @@ def search():
             page=page,
             tabs=SEARCH_TABS,
             current_tab=current_tab,
+            current_language=current_language,
             knowledge=knowledge
         )
     
@@ -1700,6 +1764,7 @@ def search():
             page=page,
             tabs=SEARCH_TABS,
             current_tab=current_tab,
+            current_language=current_language,
             knowledge=knowledge,
             error=str(e)
         )
